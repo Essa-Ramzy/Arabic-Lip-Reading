@@ -63,18 +63,10 @@ class DenseTCN(nn.Module):
 
 
 class MultiscaleTCN(nn.Module):
-    def __init__(self,
-                 input_size,
-                 num_channels,
-                 num_classes,
-                 tcn_options,
-                 dropout,
-                 relu_type,
-                 dwpw=False,
-                ):
+    def __init__(self, input_size, num_channels, num_classes, tcn_options, dropout=0.2, relu_type='relu', dwpw=False):
         super(MultiscaleTCN, self).__init__()
         self.kernel_sizes = tcn_options['kernel_size']
-        self.num_kernels = len( self.kernel_sizes )
+        self.num_kernels = len(self.kernel_sizes)
 
         self.num_channels = num_channels
         self.input_size = input_size
@@ -91,15 +83,33 @@ class MultiscaleTCN(nn.Module):
             relu_type=relu_type,
             dwpw=dwpw
         )
-        self.tcn_output = nn.Linear(num_channels[-1]*self.num_kernels, num_classes)
+        # Final output layer - takes output from all branches (num_channels[-1])
+        # The error was assuming num_channels[-1]*self.num_kernels, but the MultibranchTemporalConvNet 
+        # already concatenates the channels from each branch
+        self.tcn_output = nn.Linear(num_channels[-1], num_classes)
 
-        self.consensus_func = _average_batch
+        self.consensus_func = _sequence_batch
 
     def forward(self, x, lengths, B):
-        # x needs to have dimension (N, C, L) for (batch_size, channels, seq_len)
-        x = self.tcn_trunk(x.transpose(1,2))
-        x = self.consensus_func( x.transpose(1,2), lengths, B )
-        return self.tcn_output(x)
+        # x has dimension (B, T, C) from the Lipreading model
+        # TCN trunk expects (B, C, T), so transpose
+        x = x.transpose(1, 2)  # Now (B, C, T)
+        
+        # Run through TCN trunk
+        tcn_out = self.tcn_trunk(x)  # Output is (B, C, T)
+        
+        # Transpose back to (B, T, C) for sequence processing
+        tcn_out = tcn_out.transpose(1, 2)
+        
+        # Use the consensus function (which is _sequence_batch for CTC)
+        # _sequence_batch just returns the sequence data properly shaped
+        seq_out = self.consensus_func(tcn_out, lengths, B)
+        
+        # Get original logits 
+        original_logits = self.tcn_output(seq_out)  # (B, T, num_classes)
+        
+        # Return the actual model predictions
+        return original_logits
 
 
 class Lipreading(nn.Module):
@@ -154,32 +164,51 @@ class Lipreading(nn.Module):
         
         # -- TEMPORAL MODULE --
         if tcn_options:
-            # TCN option
+            # Create and initialize TCN
             tcn_class = tcn_options.pop('tcn_type', 'multiscale')
             if tcn_class == 'multiscale':
-                self.tcn =  MultiscaleTCN(input_size=hidden_dim,
-                                        num_channels=[hidden_dim]*4,
-                                        num_classes=num_classes,
-                                        tcn_options=tcn_options,
-                                        dropout=0.2,
-                                        relu_type=relu_type,
-                                        dwpw=tcn_options.get('dwpw', False),)
+                # Get num_channels from tcn_options
+                num_channels = tcn_options.get('num_channels', [hidden_dim//4]*4)
+                
+                # Create the adapter if needed (if hidden_dim != backend_out)
+                if hidden_dim != self.backend_out:
+                    self.adapter = nn.Linear(self.backend_out, hidden_dim)
+                else:
+                    self.adapter = nn.Identity()
+                
+                self.tcn = MultiscaleTCN(
+                    input_size=hidden_dim,
+                    num_channels=num_channels,
+                    num_classes=num_classes,
+                    tcn_options=tcn_options,
+                    dropout=tcn_options.get('dropout', 0.2),
+                    relu_type=relu_type,
+                    dwpw=tcn_options.get('dwpw', False),
+                )
             elif tcn_class == 'tcn':
                 raise ValueError("The standard TCN is no longer supported")
             else:
                 raise ValueError("Unsupported TCN type: {}".format(tcn_class))
         elif densetcn_options:
             # DenseTCN option (preferred for character-level lipreading)
-            self.tcn =  DenseTCN( block_config=densetcn_options['block_config'],
-                                 growth_rate_set=densetcn_options['growth_rate_set'],
-                                 input_size=hidden_dim,
-                                 reduced_size=densetcn_options['reduced_size'],
-                                 num_classes=num_classes,
-                                 kernel_size_set=densetcn_options['kernel_size_set'],
-                                 dilation_size_set=densetcn_options['dilation_size_set'],
-                                 dropout=densetcn_options['dropout'],
-                                 relu_type=relu_type,
-                                 squeeze_excitation=densetcn_options.get('squeeze_excitation', False),)
+            self.tcn = DenseTCN(
+                block_config=densetcn_options['block_config'],
+                growth_rate_set=densetcn_options['growth_rate_set'],
+                input_size=hidden_dim,
+                reduced_size=densetcn_options['reduced_size'],
+                num_classes=num_classes,
+                kernel_size_set=densetcn_options['kernel_size_set'],
+                dilation_size_set=densetcn_options['dilation_size_set'],
+                dropout=densetcn_options['dropout'],
+                relu_type=relu_type,
+                squeeze_excitation=densetcn_options.get('squeeze_excitation', False),
+            )
+            
+            # Create the adapter if needed (if hidden_dim != backend_out)
+            if hidden_dim != self.backend_out:
+                self.adapter = nn.Linear(self.backend_out, hidden_dim)
+            else:
+                self.adapter = nn.Identity()
 
     def forward(self, x, lengths):
         B, C, T, H, W = x.size()
@@ -199,7 +228,9 @@ class Lipreading(nn.Module):
         # Reshape back to sequence form
         x = x.view(B, Tnew, -1)  # Shape: [B, T, backend_out]
         
-        # Return features or process through TCN
+        # Apply adapter if needed to convert from backend_out to hidden_dim
+        x = self.adapter(x)  # Shape: [B, T, hidden_dim]
+        
         return x if self.extract_feats else self.tcn(x, lengths, B)
 
 
@@ -228,3 +259,5 @@ class Lipreading(nn.Module):
             elif isinstance(m, nn.Linear):
                 n = float(m.weight.data[0].nelement())
                 m.weight.data = m.weight.data.normal_(0, f(n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
