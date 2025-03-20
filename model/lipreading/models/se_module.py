@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from lipreading.models.swish import Swish
 
 def _average_batch( x, lengths):
     return torch.stack( [torch.mean( x[index][:,0:i], 1 ) for index, i in enumerate(lengths)],0 )
@@ -11,7 +10,7 @@ class SELayer(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction, bias=False),
-            Swish(),
+            nn.SiLU(),
             nn.Linear(channel // reduction, channel, bias=False),
             nn.Sigmoid()
         )

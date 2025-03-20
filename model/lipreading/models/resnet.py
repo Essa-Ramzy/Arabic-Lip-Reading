@@ -1,9 +1,6 @@
-
 import math
 import torch.nn as nn
 import pdb
-
-from lipreading.models.swish import Swish
 
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -44,8 +41,8 @@ class BasicBlock(nn.Module):
             self.relu1 = nn.PReLU(num_parameters=planes)
             self.relu2 = nn.PReLU(num_parameters=planes)
         elif relu_type == 'swish':
-            self.relu1 = Swish()
-            self.relu2 = Swish()
+            self.relu1 = nn.SiLU()
+            self.relu2 = nn.SiLU()
         else:
             raise Exception('relu type not implemented')
         # --------

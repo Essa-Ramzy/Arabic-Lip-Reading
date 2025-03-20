@@ -3,11 +3,9 @@ import torch.nn as nn
 import math
 import numpy as np
 from lipreading.models.resnet import ResNet, BasicBlock
-from lipreading.models.resnet1D import ResNet1D, BasicBlock1D
 from lipreading.models.shufflenetv2 import ShuffleNetV2
 from lipreading.models.tcn import MultibranchTemporalConvNet, TemporalConvNet
 from lipreading.models.densetcn import DenseTemporalConvNet
-from lipreading.models.swish import Swish
 
 
 # Function to preserve sequence information for character-level recognition

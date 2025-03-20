@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
-from lipreading.models.swish import Swish
 
 
 
@@ -30,7 +29,7 @@ class TemporalConvLayer(nn.Module):
                            stride=stride, padding=padding, dilation=dilation),
                 nn.BatchNorm1d(n_outputs),
                 Chomp1d(padding, True),
-                nn.PReLU(num_parameters=n_outputs) if relu_type == 'prelu' else Swish() if relu_type == 'swish' else nn.ReLU(),)
+                nn.PReLU(num_parameters=n_outputs) if relu_type == 'prelu' else nn.SiLU() if relu_type == 'swish' else nn.ReLU(),)
 
     def forward(self, x):
         return self.net(x)
@@ -65,7 +64,7 @@ class _ConvBatchChompRelu(nn.Module):
         elif relu_type == 'prelu':
             self.relu_final = nn.PReLU(num_parameters=n_outputs)
         elif relu_type == 'swish':
-            self.relu_final = Swish()
+            self.relu_final = nn.SiLU()
 
     def bn_function(self, inputs):
         # type: (List[Tensor]) -> Tensor
@@ -143,7 +142,7 @@ class _Transition(nn.Sequential):
         elif relu_type == 'prelu':
             self.add_module('prelu', nn.PReLU(num_parameters=num_output_features))
         elif relu_type == 'swish':
-            self.add_module('swish', Swish())
+            self.add_module('swish', nn.SiLU())
 
 
 class DenseTemporalConvNet(nn.Module):
