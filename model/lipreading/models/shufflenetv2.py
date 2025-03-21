@@ -6,8 +6,6 @@ from collections import OrderedDict
 from torch.nn import init
 import math
 
-import pdb
-
 def conv_bn(inp, oup, stride):
     return nn.Sequential(
         nn.Conv2d(inp, oup, 3, stride, 1, bias=False),

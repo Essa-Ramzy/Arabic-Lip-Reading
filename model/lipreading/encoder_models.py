@@ -6,9 +6,11 @@ from lipreading.models.resnet import ResNet, BasicBlock
 from lipreading.models.shufflenetv2 import ShuffleNetV2
 from lipreading.models.tcn import MultibranchTemporalConvNet, TemporalConvNet
 from lipreading.models.densetcn import DenseTemporalConvNet
+from espnet.nets.pytorch_backend.encoder.conformer_encoder import ConformerEncoder
+from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
 
 
-# Function to preserve sequence information for character-level recognition
+# Function to preserve sequence information for Token-level Seq2Seq recognition
 def _sequence_batch(x, lengths, B):
     # Just return the sequence data properly shaped for CTC
     # Each item in batch will have sequence length based on its actual length
@@ -34,12 +36,12 @@ class DenseTCN(nn.Module):
         super(DenseTCN, self).__init__()
 
         num_features = reduced_size + block_config[-1]*growth_rate_set[-1]
-        self.tcn_trunk = DenseTemporalConvNet(block_config, growth_rate_set, input_size, reduced_size,
+        self.encoder_trunk = DenseTemporalConvNet(block_config, growth_rate_set, input_size, reduced_size,
                                           kernel_size_set, dilation_size_set,
                                           dropout=dropout, relu_type=relu_type,
                                           squeeze_excitation=squeeze_excitation,
                                           )
-        self.tcn_output = nn.Linear(num_features, num_classes)
+        self.encoder_output = nn.Linear(num_features, num_classes)
         
         # Use sequence_batch instead of average_batch for CTC
         self.consensus_func = _sequence_batch
@@ -49,13 +51,13 @@ class DenseTCN(nn.Module):
         x = x.transpose(1, 2)  # Now (B, C, T)
         
         # Process through TCN trunk
-        out = self.tcn_trunk(x)  # Shape (B, C, T)
+        out = self.encoder_trunk(x)  # Shape (B, C, T)
         
         # Transpose back to (B, T, C) for linear layer
         out = out.transpose(1, 2)  # Now (B, T, C)
         
         # Apply linear layer to each time step
-        logits = self.tcn_output(out)  # Shape (B, T, num_classes)
+        logits = self.encoder_output(out)  # Shape (B, T, num_classes)
         
         return logits
 
@@ -73,7 +75,7 @@ class MultiscaleTCN(nn.Module):
         self.relu_type = relu_type
         self.dwpw = dwpw
 
-        self.tcn_trunk = MultibranchTemporalConvNet(
+        self.encoder_trunk = MultibranchTemporalConvNet(
             num_inputs=input_size,
             num_channels=num_channels,
             tcn_options=tcn_options,
@@ -84,7 +86,7 @@ class MultiscaleTCN(nn.Module):
         # Final output layer - takes output from all branches (num_channels[-1])
         # The error was assuming num_channels[-1]*self.num_kernels, but the MultibranchTemporalConvNet 
         # already concatenates the channels from each branch
-        self.tcn_output = nn.Linear(num_channels[-1], num_classes)
+        self.encoder_output = nn.Linear(num_channels[-1], num_classes)
 
         self.consensus_func = _sequence_batch
 
@@ -94,7 +96,7 @@ class MultiscaleTCN(nn.Module):
         x = x.transpose(1, 2)  # Now (B, C, T)
         
         # Run through TCN trunk
-        tcn_out = self.tcn_trunk(x)  # Output is (B, C, T)
+        tcn_out = self.encoder_trunk(x)  # Output is (B, C, T)
         
         # Transpose back to (B, T, C) for sequence processing
         tcn_out = tcn_out.transpose(1, 2)
@@ -104,7 +106,7 @@ class MultiscaleTCN(nn.Module):
         seq_out = self.consensus_func(tcn_out, lengths, B)
         
         # Get original logits 
-        original_logits = self.tcn_output(seq_out)  # (B, T, num_classes)
+        original_logits = self.encoder_output(seq_out)  # (B, T, num_classes)
         
         # Return the actual model predictions
         return original_logits
@@ -119,6 +121,7 @@ class Lipreading(nn.Module):
                  relu_type='swish',
                  tcn_options={},
                  densetcn_options={},
+                 conformer_options={},
                  frontend_options={},
                  extract_feats=False,
                 ):
@@ -143,7 +146,6 @@ class Lipreading(nn.Module):
             raise ValueError("Unsupported backbone_type: {}".format(backbone_type))
             
         # -- FRONT-END --
-        # Visual model
         if 'tcn' in frontend_options:
             self.frontend = nn.Sequential(
                 nn.Conv3d(1, self.frontend_nout, kernel_size=(5,7,7), stride=(1,2,2), padding=(2,3,3), bias=False),
@@ -165,16 +167,14 @@ class Lipreading(nn.Module):
             # Create and initialize TCN
             tcn_class = tcn_options.pop('tcn_type', 'multiscale')
             if tcn_class == 'multiscale':
-                # Get num_channels from tcn_options
                 num_channels = tcn_options.get('num_channels', [hidden_dim//4]*4)
                 
-                # Create the adapter if needed (if hidden_dim != backend_out)
                 if hidden_dim != self.backend_out:
                     self.adapter = nn.Linear(self.backend_out, hidden_dim)
                 else:
                     self.adapter = nn.Identity()
                 
-                self.tcn = MultiscaleTCN(
+                self.encoder = MultiscaleTCN(
                     input_size=hidden_dim,
                     num_channels=num_channels,
                     num_classes=num_classes,
@@ -188,8 +188,8 @@ class Lipreading(nn.Module):
             else:
                 raise ValueError("Unsupported TCN type: {}".format(tcn_class))
         elif densetcn_options:
-            # DenseTCN option (preferred for character-level lipreading)
-            self.tcn = DenseTCN(
+            # DenseTCN option
+            self.encoder = DenseTCN(
                 block_config=densetcn_options['block_config'],
                 growth_rate_set=densetcn_options['growth_rate_set'],
                 input_size=hidden_dim,
@@ -202,40 +202,75 @@ class Lipreading(nn.Module):
                 squeeze_excitation=densetcn_options.get('squeeze_excitation', False),
             )
             
-            # Create the adapter if needed (if hidden_dim != backend_out)
             if hidden_dim != self.backend_out:
                 self.adapter = nn.Linear(self.backend_out, hidden_dim)
             else:
                 self.adapter = nn.Identity()
+        elif conformer_options:
+            # Conformer option
+            if hidden_dim != self.backend_out:
+                self.adapter = nn.Linear(self.backend_out, hidden_dim)
+            else:
+                self.adapter = nn.Identity()
+                
+            self.encoder = ConformerEncoder(
+                attention_dim=hidden_dim,
+                attention_heads=conformer_options.get('attention_heads', 8),
+                linear_units=conformer_options.get('linear_units', 2048),
+                num_blocks=conformer_options.get('num_blocks', 6),
+                dropout_rate=conformer_options.get('dropout_rate', 0.1),
+                positional_dropout_rate=conformer_options.get('positional_dropout_rate', 0.1),
+                attention_dropout_rate=conformer_options.get('attention_dropout_rate', 0.0),
+                normalize_before=True,
+                concat_after=False,
+                macaron_style=True,
+                use_cnn_module=True,
+                cnn_module_kernel=conformer_options.get('cnn_module_kernel', 31),
+            )
+            # Add output projection for classification (per time step)
+            self.output_layer = nn.Linear(hidden_dim, num_classes)
 
     def forward(self, x, lengths):
         B, C, T, H, W = x.size()
         # Process through frontend
-        x = self.frontend(x)  # Shape: [B, frontend_nout, T, H/4, W/4]
+        x = self.frontend(x)
         
         # Get new time dimension after frontend
         Tnew = x.shape[2]
         
         # Reshape and permute for ResNet processing
-        x = x.permute(0, 2, 1, 3, 4).contiguous()  # Shape: [B, T, frontend_nout, H/4, W/4]
-        x = x.view(-1, x.size(2), x.size(3), x.size(4))  # Shape: [B*T, frontend_nout, H/4, W/4]
+        x = x.permute(0, 2, 1, 3, 4).contiguous()
+        x = x.view(-1, x.size(2), x.size(3), x.size(4))
         
         # Process through ResNet trunk
-        x = self.trunk(x)  # Shape: [B*T, backend_out]
+        x = self.trunk(x)
         
         # Reshape back to sequence form
-        x = x.view(B, Tnew, -1)  # Shape: [B, T, backend_out]
+        x = x.view(B, Tnew, -1)
         
-        # Apply adapter if needed to convert from backend_out to hidden_dim
-        x = self.adapter(x)  # Shape: [B, T, hidden_dim]
+        # Apply adapter if needed
+        x = self.adapter(x)
         
-        return x if self.extract_feats else self.tcn(x, lengths, B)
+        if self.extract_feats:
+            return x
+            
+        # Process through temporal module
+        if isinstance(self.encoder, ConformerEncoder):
+            # Create padding mask for Conformer
+            padding_mask = make_non_pad_mask(lengths).to(x.device).unsqueeze(-2)
+            # Forward through Conformer
+            x, _ = self.encoder(x, padding_mask)
+            # Apply output projection
+            x = self.output_layer(x)
+        else:
+            # Forward through TCN or DenseTCN
+            x = self.encoder(x, lengths, B)
+            
+        return x
 
 
     def _initialize_weights_randomly(self):
-
         use_sqrt = True
-
         if use_sqrt:
             def f(n):
                 return math.sqrt( 2.0/float(n) )
@@ -259,3 +294,5 @@ class Lipreading(nn.Module):
                 m.weight.data = m.weight.data.normal_(0, f(n))
                 if m.bias is not None:
                     m.bias.data.zero_()
+
+

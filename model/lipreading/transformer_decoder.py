@@ -513,33 +513,37 @@ class ArabicTransformerDecoder(nn.Module):
         self,
         memory,
         memory_mask=None,
-        sos=1,
-        eos=2,
+        sos=None,
+        eos=None,
         blank=0,
         beam_size=5,
         penalty=0.0,
         maxlen=100,
         minlen=0,
-        ctc_weight=0.0
+        ctc_weight=0.3
     ):
-        """Perform beam search in batch mode with improved memory mask handling.
+        """Perform beam search in batch mode with hybrid CTC/Attention scoring.
         
         Args:
             memory: Encoded memory, float32 (batch, maxlen_in, feat)
             memory_mask: Encoded memory mask, (batch, maxlen_in) or (batch, 1, maxlen_in)
-            sos: Start of sequence id
-            eos: End of sequence id
+            sos: Start of sequence id (optional, will use self.sos_id if not provided)
+            eos: End of sequence id (optional, will use self.eos_id if not provided)
             blank: Blank symbol id for CTC
             beam_size: Beam size 
             penalty: Insertion penalty
             maxlen: Maximum output length
             minlen: Minimum output length
-            ctc_weight: CTC weight for joint decoding
+            ctc_weight: Weight for CTC scoring (0.0 to 1.0)
             
         Returns:
             list of tuples containing (score, hypotheses)
             hypotheses is a list of tokens
         """
+        # Use class-defined special tokens if not provided
+        sos = self.sos_id if sos is None else sos
+        eos = self.eos_id if eos is None else eos
+        
         device = memory.device
         batch_size = memory.size(0)
         mem_seq_len = memory.size(1)
@@ -551,12 +555,9 @@ class ArabicTransformerDecoder(nn.Module):
         
         # Create or process memory mask
         if memory_mask is None:
-            # Create default memory mask that allows attending to all positions
             memory_mask = torch.ones(batch_size, mem_seq_len, device=device).bool()
         else:
-            # Handle different memory mask formats
             if memory_mask.dim() == 1 and memory_mask.size(0) == batch_size:
-                # Convert length mask to boolean mask
                 lengths_mask = memory_mask
                 memory_mask = torch.zeros(batch_size, mem_seq_len, device=memory_mask.device).bool()
                 for b in range(batch_size):
@@ -564,132 +565,117 @@ class ArabicTransformerDecoder(nn.Module):
                     memory_mask[b, :length] = True
             elif memory_mask.dim() == 2:
                 if memory_mask.size(0) == 1:
-                    # Expand single batch mask
                     memory_mask = memory_mask.expand(batch_size, -1)
                 elif memory_mask.size(1) != mem_seq_len:
                     raise ValueError(f"Memory mask length {memory_mask.size(1)} does not match memory length {mem_seq_len}")
             elif memory_mask.dim() == 3:
-                # Handle batch x 1 x seq_len format
                 memory_mask = memory_mask.squeeze(1)
             
-            # Ensure memory_mask is boolean type
             memory_mask = memory_mask.bool()
             
-            # Validate final mask shape
             if memory_mask.size() != (batch_size, mem_seq_len):
                 raise ValueError(
                     f"Memory mask shape {memory_mask.size()} does not match required shape ({batch_size}, {mem_seq_len})"
                 )
         
-        # Invert memory_mask for attention (False = attend, True = don't attend)
         src_attention_mask = ~memory_mask
         
         # Process each batch item separately
         for b in range(batch_size):
-            # Get memory for this batch item with batch dimension preserved
-            single_memory = memory[b:b+1]  # Shape: [1, seq_len, hidden_dim]
-            single_mask = src_attention_mask[b:b+1]  # Shape: [1, seq_len]
+            single_memory = memory[b:b+1]
+            single_mask = src_attention_mask[b:b+1]
             
             # Initialize with start-of-sequence token
-            y = torch.tensor([[sos]], dtype=torch.long, device=device)  # Shape: [1, 1]
+            y = torch.tensor([[sos]], dtype=torch.long, device=device)
             
             # Initialize beam with just the start token
-            beam = [{'score': 0.0, 'yseq': [sos], 'cache': None}]
+            beam = [{'score': 0.0, 'ctc_score': 0.0, 'att_score': 0.0, 'yseq': [sos], 'cache': None}]
             finished_beams = []
             
-            # Perform beam search up to maxlen steps
             for i in range(maxlen):
                 candidates = []
                 
-                # Process each hypothesis in the beam
                 for hyp in beam:
-                    # Convert sequence to tensor for decoder
                     y = torch.tensor([hyp['yseq']], dtype=torch.long, device=device)
-                    
-                    # Create self-attention mask for autoregressive property
                     y_mask = subsequent_mask(y.size(1)).to(device)
                     
                     try:
-                        # Forward one step with caching
                         with torch.no_grad():
+                            # Get attention decoder scores
                             y_hat, cache = self.forward_one_step(
                                 y, y_mask, single_memory, single_mask, cache=hyp['cache']
                             )
                             
-                        # Get log probabilities for next token
-                        logp = F.log_softmax(y_hat, dim=-1).squeeze(0)  # [vocab_size]
-                        
-                        # Get top beam_size next tokens
-                        topk_logp, topk_indices = torch.topk(logp, k=beam_size)
-                        
-                        # Create new candidates for each possible next token
-                        for logp_val, token_idx in zip(topk_logp, topk_indices):
-                            token_idx = token_idx.item()
+                            # Get log probabilities for next token
+                            att_logp = F.log_softmax(y_hat, dim=-1).squeeze(0)
                             
-                            # Skip blank token
-                            if token_idx == blank:
-                                continue
+                            # Get top beam_size next tokens based on attention scores
+                            topk_att_logp, topk_indices = torch.topk(att_logp, k=beam_size)
+                            
+                            for att_logp_val, token_idx in zip(topk_att_logp, topk_indices):
+                                token_idx = token_idx.item()
                                 
-                            # Calculate new score
-                            new_score = hyp['score'] + logp_val.item()
-                            
-                            # Apply length penalty for EOS token
-                            if token_idx == eos:
-                                if len(hyp['yseq']) < minlen:
-                                    continue  # Skip EOS if sequence too short
-                                # Apply penalty here if needed
-                                new_score += penalty * len(hyp['yseq'])
-                            
-                            # Create new beam
-                            new_beam = {
-                                'score': new_score,
-                                'yseq': hyp['yseq'] + [token_idx],
-                                'cache': cache
-                            }
-                            
-                            # Add to finished beams if EOS token
-                            if token_idx == eos:
-                                finished_beams.append(new_beam)
-                            else:
-                                candidates.append(new_beam)
+                                # Skip blank token
+                                if token_idx == blank:
+                                    continue
+                                
+                                # Calculate new attention score
+                                new_att_score = hyp['att_score'] + att_logp_val.item()
+                                
+                                # Calculate new CTC score (if available)
+                                new_ctc_score = hyp['ctc_score']  # Use previous CTC score if no new info
+                                
+                                # Combine scores using CTC weight
+                                new_score = ctc_weight * new_ctc_score + (1.0 - ctc_weight) * new_att_score
+                                
+                                # Apply length penalty for EOS token
+                                if token_idx == eos:
+                                    if len(hyp['yseq']) < minlen:
+                                        continue
+                                    new_score += penalty * len(hyp['yseq'])
+                                
+                                new_beam = {
+                                    'score': new_score,
+                                    'ctc_score': new_ctc_score,
+                                    'att_score': new_att_score,
+                                    'yseq': hyp['yseq'] + [token_idx],
+                                    'cache': cache
+                                }
+                                
+                                if token_idx == eos:
+                                    finished_beams.append(new_beam)
+                                else:
+                                    candidates.append(new_beam)
                     
                     except Exception as e:
                         print(f"Error in beam {len(candidates)}: {str(e)}")
                         continue
                 
-                # If we have no candidates and no finished beams, stop search
                 if not candidates and not finished_beams:
                     break
                 
-                # Sort candidates by score and keep top beam_size
+                # Sort candidates by combined score
                 candidates.sort(key=lambda x: x['score'], reverse=True)
                 beam = candidates[:beam_size]
                 
-                # If all beams have finished, break
                 if len(beam) == 0:
                     break
             
-            # Add any unfinished beams to finished
+            # Add unfinished beams to finished
             finished_beams.extend(beam)
             
-            # Sort and get the best result
             if finished_beams:
                 finished_beams.sort(key=lambda x: x['score'], reverse=True)
                 best_beam = finished_beams[0]
-                
-                # Remove SOS token
-                best_seq = best_beam['yseq'][1:]
-                    
+                best_seq = best_beam['yseq'][1:]  # Remove SOS
                 results.append((best_beam['score'], best_seq))
             else:
-                # No finished beams, return best unfinished beam
                 if beam:
                     beam.sort(key=lambda x: x['score'], reverse=True)
                     best_beam = beam[0]
-                    best_seq = best_beam['yseq'][1:]  # Remove SOS
+                    best_seq = best_beam['yseq'][1:]
                     results.append((best_beam['score'], best_seq))
                 else:
-                    # No valid beams at all, return empty sequence
                     results.append((0.0, []))
-                
+        
         return results 
