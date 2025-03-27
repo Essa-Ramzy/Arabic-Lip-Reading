@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.nn.utils import weight_norm
 
 
 """Implements Temporal Convolutional Network (TCN)

@@ -8,12 +8,12 @@
 
 import copy
 import torch
-from espnet.nets.pytorch_backend.nets_utils import rename_state_dict
-from espnet.nets.pytorch_backend.transformer.attention import RelPositionMultiHeadedAttention
-from espnet.nets.pytorch_backend.transformer.embedding import RelPositionalEncoding
-from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
-from espnet.nets.pytorch_backend.transformer.positionwise_feed_forward import PositionwiseFeedForward
-from espnet.nets.pytorch_backend.transformer.repeat import repeat
+from espnet.nets_utils import rename_state_dict
+from espnet.transformer.attention import RelPositionMultiHeadedAttention
+from espnet.transformer.embedding import RelPositionalEncoding
+from espnet.transformer.layer_norm import LayerNorm
+from espnet.transformer.positionwise_feed_forward import PositionwiseFeedForward
+from espnet.transformer.repeat import repeat
 
 
 class ConvolutionModule(torch.nn.Module):
@@ -39,13 +39,13 @@ class EncoderLayer(torch.nn.Module):
     """Encoder layer module.
 
     :param int size: input dim
-    :param espnet.nets.pytorch_backend.transformer.attention.
+    :param espnet.transformer.attention.
         MultiHeadedAttention self_attn: self attention module
         RelPositionMultiHeadedAttention self_attn: self attention module
-    :param espnet.nets.pytorch_backend.transformer.positionwise_feed_forward.
+    :param espnet.transformer.positionwise_feed_forward.
         PositionwiseFeedForward feed_forward:
         feed forward module
-    :param espnet.nets.pytorch_backend.transformer.convolution.
+    :param espnet.transformer.convolution.
         ConvolutionModule feed_foreard:
         feed forward module
     :param float dropout_rate: dropout rate
@@ -173,11 +173,6 @@ class EncoderLayer(torch.nn.Module):
 def _pre_hook(
     state_dict,
     prefix,
-    local_metadata,
-    strict,
-    missing_keys,
-    unexpected_keys,
-    error_msgs,
 ):
     rename_state_dict(prefix + "input_layer.", prefix + "embed.", state_dict)
     rename_state_dict(prefix + "norm.", prefix + "after_norm.", state_dict)
@@ -206,7 +201,6 @@ class ConformerEncoder(torch.nn.Module):
     :param bool use_cnn_module: whether to use convolution module
     :param bool zero_triu: whether to zero the upper triangular part of attention matrix
     :param int cnn_module_kernel: kernerl size of convolution module
-    :param int padding_idx: padding_idx for input_layer=embed
     """
 
     def __init__(
@@ -224,9 +218,6 @@ class ConformerEncoder(torch.nn.Module):
         use_cnn_module=True,
         zero_triu=False,
         cnn_module_kernel=31,
-        padding_idx=-1,
-        relu_type="swish",
-        layer_drop_rate=0.0,
     ):
         """Construct an Encoder object."""
         super(ConformerEncoder, self).__init__()
@@ -246,7 +237,7 @@ class ConformerEncoder(torch.nn.Module):
 
         self.encoders = repeat(
             num_blocks,
-            lambda lnum: EncoderLayer(
+            lambda _: EncoderLayer(
                 attention_dim,
                 encoder_attn_layer(*encoder_attn_layer_args),
                 positionwise_layer(*positionwise_layer_args),

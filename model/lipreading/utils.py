@@ -114,7 +114,7 @@ class CheckpointSaver:
         if self.save_best_step:
 
             assert epoch >= 0, "Since save_best_step=True, need proper value for 'epoch'. Current: {}".format(epoch)
-            s_idx = sum( epoch >= l for l in lr_steps )
+            s_idx = sum( epoch >= l for l in self.lr_steps )
             self.is_best_for_stage = current_perf > self.best_for_stage[s_idx]
 
             if self.is_best_for_stage:

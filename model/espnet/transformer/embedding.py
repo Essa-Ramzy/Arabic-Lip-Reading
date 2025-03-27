@@ -14,11 +14,6 @@ import torch
 def _pre_hook(
     state_dict,
     prefix,
-    local_metadata,
-    strict,
-    missing_keys,
-    unexpected_keys,
-    error_msgs,
 ):
     """Perform pre-hook in load_state_dict for backward compatibility.
     Note:

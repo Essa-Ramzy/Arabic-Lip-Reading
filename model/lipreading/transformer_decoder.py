@@ -1,16 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import math
 
 # Import from espnet
-from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
-from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
-from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
-from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
-from espnet.nets.pytorch_backend.transformer.positionwise_feed_forward import PositionwiseFeedForward
-from espnet.nets.pytorch_backend.transformer.repeat import repeat
+from espnet.transformer.attention import MultiHeadedAttention
+from espnet.transformer.embedding import PositionalEncoding
+from espnet.transformer.layer_norm import LayerNorm
+from espnet.transformer.mask import subsequent_mask
+from espnet.transformer.positionwise_feed_forward import PositionwiseFeedForward
+from espnet.transformer.repeat import repeat
 
 # Import a MODIFIED version of DecoderLayer (instead of importing from ESPNet)
 # This addresses the cache shape mismatch issue

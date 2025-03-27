@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from collections import OrderedDict
 
 
@@ -67,7 +66,6 @@ class _ConvBatchChompRelu(nn.Module):
             self.relu_final = nn.SiLU()
 
     def bn_function(self, inputs):
-        # type: (List[Tensor]) -> Tensor
         x = torch.cat(inputs, 1)
         outputs = []
         for k_idx in range( self.num_kernels ):
@@ -125,7 +123,7 @@ class _DenseBlock(nn.ModuleDict):
 
     def forward(self, init_features):
         features = [init_features]
-        for name, layer in self.items():
+        for _, layer in self.items():
             new_features = layer(features)
             features.append(new_features)
         return torch.cat(features, 1)

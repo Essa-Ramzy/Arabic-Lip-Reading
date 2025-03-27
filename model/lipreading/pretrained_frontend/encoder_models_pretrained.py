@@ -1,12 +1,11 @@
-import torch
 import torch.nn as nn
 import math
 import numpy as np
 from lipreading.models.resnet import ResNet, BasicBlock
-from lipreading.models.tcn import MultibranchTemporalConvNet, TemporalConvNet
+from lipreading.models.tcn import MultibranchTemporalConvNet
 from lipreading.models.densetcn import DenseTemporalConvNet
-from espnet.nets.pytorch_backend.encoder.conformer_encoder import ConformerEncoder
-from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
+from espnet.encoder.conformer_encoder import ConformerEncoder
+from espnet.nets_utils import make_non_pad_mask
 
 
 # Function to preserve sequence information for Token-level Seq2Seq recognition
@@ -14,16 +13,6 @@ def _sequence_batch(x, lengths, B):
     # Just return the sequence data properly shaped for CTC
     # Each item in batch will have sequence length based on its actual length
     return x  # Keep the sequence information intact - shape (B, T, C)
-
-
-# Original function that was used for word classification - kept for reference
-def _average_batch(x, lengths, B):
-    """
-    Average sequence across time dimension based on sequence lengths.
-    This function is used when we want a fixed-length representation
-    of the sequence for word classification.
-    """
-    return torch.stack([torch.mean(x[i][:lengths[i]], dim=0) for i in range(B)], dim=0)
 
 
 class DenseTCN(nn.Module):
@@ -158,7 +147,6 @@ class Lipreading(nn.Module):
                  tcn_options={},
                  densetcn_options={},
                  conformer_options={},
-                 frontend_options={},
                  extract_feats=False,
                 ):
         super(Lipreading, self).__init__()
