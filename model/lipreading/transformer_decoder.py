@@ -170,14 +170,23 @@ class ArabicTransformerDecoder(nn.Module):
     ):
         super(ArabicTransformerDecoder, self).__init__()
         
+        # Store vocabulary size
+        self.vocab_size = vocab_size
+        
+        # Define default special token indices
+        # By default, use vocab_size - 2 for SOS and vocab_size - 1 for EOS
+        # But these can be overridden when calling methods directly
+        self.sos_id = vocab_size - 2  # Second to last index
+        self.eos_id = vocab_size - 1  # Last index
+        
         # Embedding layer converts token indices to vectors and adds positional encoding
         self.embedding = torch.nn.Sequential(
             torch.nn.Embedding(vocab_size, attention_dim),
             PositionalEncoding(attention_dim, positional_dropout_rate)
         )
         
-        # Memory projection layer - don't create it yet, will be created with correct size in forward
-        self.memory_projection = None
+        # Initialize memory projection layer
+        self.memory_projection = torch.nn.Linear(attention_dim, attention_dim)
         self.attention_dim = attention_dim
         
         # Create decoder blocks with custom decoder layers
@@ -214,13 +223,15 @@ class ArabicTransformerDecoder(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
     
-    def _create_memory_projection(self, input_dim):
-        """Create memory projection layer with the correct input dimension"""
-        if self.memory_projection is None or self.memory_projection.in_features != input_dim:
+    def _ensure_memory_projection(self, input_dim):
+        """Ensure memory projection layer has the correct input dimension"""
+        if self.memory_projection.in_features != input_dim:
+            # Create a new projection layer with the correct dimensions
+            old_projection = self.memory_projection
             self.memory_projection = torch.nn.Linear(input_dim, self.attention_dim)
             # Initialize with xavier uniform
             nn.init.xavier_uniform_(self.memory_projection.weight)
-            self.memory_projection = self.memory_projection.to(next(self.parameters()).device)
+            self.memory_projection = self.memory_projection.to(old_projection.weight.device)
     
     def forward_one_step(self, tgt, tgt_mask, memory, memory_mask=None, cache=None):
         """Forward one step in generation.
@@ -239,8 +250,8 @@ class ArabicTransformerDecoder(nn.Module):
         # Convert target tokens to embeddings
         x = self.embedding(tgt)
         
-        # Create or use existing memory projection layer
-        self._create_memory_projection(memory.size(-1))
+        # Ensure memory projection has the correct dimensions
+        self._ensure_memory_projection(memory.size(-1))
         
         # Project memory to attention dimension
         memory = self.memory_projection(memory)
@@ -355,8 +366,8 @@ class ArabicTransformerDecoder(nn.Module):
             # Convert target tokens to embeddings
             x = self.embedding(tgt)
             
-            # Create or use existing memory projection layer
-            self._create_memory_projection(memory.size(-1))
+            # Ensure memory projection has the correct dimensions
+            self._ensure_memory_projection(memory.size(-1))
             
             # Project memory to attention dimension
             memory = self.memory_projection(memory)
@@ -456,7 +467,7 @@ class ArabicTransformerDecoder(nn.Module):
         batch_size = memory.size(0)
         
         # Create or use existing memory projection layer
-        self._create_memory_projection(memory.size(-1))
+        self._ensure_memory_projection(memory.size(-1))
         
         # Project memory to attention dimension
         memory = self.memory_projection(memory)
@@ -467,8 +478,8 @@ class ArabicTransformerDecoder(nn.Module):
         else:
             memory_mask = memory_mask.bool()
         
-        # Initialize with BOS token (assuming 1 is SOS/BOS token)
-        ys = torch.ones(batch_size, 1).long().to(device)  # Start with <sos> token
+        # Initialize with SOS token using self.sos_id instead of hardcoded value
+        ys = torch.full((batch_size, 1), self.sos_id, dtype=torch.long, device=device)
         scores = torch.zeros(batch_size).to(device)
         
         # Create cache for fast decoding
@@ -498,7 +509,7 @@ class ArabicTransformerDecoder(nn.Module):
                 ys = torch.cat([ys, next_token], dim=-1)
                 
                 # Stop if EOS token is generated for all sequences
-                if (next_token == 2).all():  # Assuming 2 is EOS token
+                if (next_token == self.eos_id).all():  # Use self.eos_id instead of hardcoded 2
                     break
                     
             except Exception as e:
@@ -548,7 +559,7 @@ class ArabicTransformerDecoder(nn.Module):
         results = []
         
         # Project memory to attention dimension
-        self._create_memory_projection(memory.size(-1))
+        self._ensure_memory_projection(memory.size(-1))
         memory = self.memory_projection(memory)
         
         # Create or process memory mask
