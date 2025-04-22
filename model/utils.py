@@ -1,6 +1,8 @@
 import torch
 import editdistance
+import math
 from espnet.nets_utils import make_pad_mask
+import logging
 
 
 def make_non_pad_mask(lengths, xs=None, length_dim=-1):
@@ -150,12 +152,12 @@ def compute_cer(reference_indices, hypothesis_indices):
     hyp_tokens = hypothesis_indices
     
     try:
-        print(f"Debug - Reference tokens ({len(ref_tokens)} tokens): {ref_tokens}")
-        print(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): {hyp_tokens}")
+        logging.info(f"Debug - Reference tokens ({len(ref_tokens)} tokens): {ref_tokens}")
+        logging.info(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): {hyp_tokens}")
     except UnicodeEncodeError:
         # Handle encoding issues in Windows console
-        print(f"Debug - Reference tokens ({len(ref_tokens)} tokens): [Token indices omitted due to encoding issues]")
-        print(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): [Token indices omitted due to encoding issues]")
+        logging.info(f"Debug - Reference tokens ({len(ref_tokens)} tokens): [Token indices omitted due to encoding issues]")
+        logging.info(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): [Token indices omitted due to encoding issues]")
     
     # Calculate edit distance using the editdistance library
     edit_distance = editdistance.eval(ref_tokens, hyp_tokens)
@@ -164,3 +166,25 @@ def compute_cer(reference_indices, hypothesis_indices):
     cer = edit_distance / max(len(ref_tokens), 1)  # Avoid division by zero
     
     return cer, edit_distance
+
+
+class WarmupCosineScheduler(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_epochs: int,
+        total_epochs: int,
+        steps_per_epoch: int,
+        last_epoch=-1,
+        verbose=False,
+    ):
+        self.warmup_steps = warmup_epochs * steps_per_epoch
+        self.total_steps = total_epochs * steps_per_epoch
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+
+    def get_lr(self):
+        if self._step_count < self.warmup_steps:
+            return [self._step_count / self.warmup_steps * base_lr for base_lr in self.base_lrs]
+        decay_steps = self.total_steps - self.warmup_steps
+        cos_val = math.cos(math.pi * (self._step_count - self.warmup_steps) / decay_steps)
+        return [0.5 * base_lr * (1 + cos_val) for base_lr in self.base_lrs]
