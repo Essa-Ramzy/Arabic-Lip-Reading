@@ -1,3 +1,7 @@
 **/__pycache__/
 model/*.pth
 Logs/
+uploads/
+processed/
+LRC-AR/
+.env

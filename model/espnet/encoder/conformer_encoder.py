@@ -173,6 +173,11 @@ class EncoderLayer(torch.nn.Module):
 def _pre_hook(
     state_dict,
     prefix,
+    local_metadata,
+    strict,
+    missing_keys,
+    unexpected_keys,
+    error_msgs,
 ):
     rename_state_dict(prefix + "input_layer.", prefix + "embed.", state_dict)
     rename_state_dict(prefix + "norm.", prefix + "after_norm.", state_dict)
@@ -201,6 +206,7 @@ class ConformerEncoder(torch.nn.Module):
     :param bool use_cnn_module: whether to use convolution module
     :param bool zero_triu: whether to zero the upper triangular part of attention matrix
     :param int cnn_module_kernel: kernerl size of convolution module
+    :param int padding_idx: padding_idx for input_layer=embed
     """
 
     def __init__(
@@ -218,6 +224,9 @@ class ConformerEncoder(torch.nn.Module):
         use_cnn_module=True,
         zero_triu=False,
         cnn_module_kernel=31,
+        padding_idx=-1,
+        relu_type="swish",
+        layer_drop_rate=0.0,
     ):
         """Construct an Encoder object."""
         super(ConformerEncoder, self).__init__()
@@ -237,7 +246,7 @@ class ConformerEncoder(torch.nn.Module):
 
         self.encoders = repeat(
             num_blocks,
-            lambda _: EncoderLayer(
+            lambda lnum: EncoderLayer(
                 attention_dim,
                 encoder_attn_layer(*encoder_attn_layer_args),
                 positionwise_layer(*positionwise_layer_args),
