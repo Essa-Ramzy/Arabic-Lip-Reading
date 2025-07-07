@@ -92,7 +92,7 @@ def ensure_localtunnel_installed(project_dir):
     if not os.path.exists(node_modules_path):
         print("📦 Installing LocalTunnel locally...")
         result = subprocess.run(
-            ["npm", "install", "localtunnel"],
+            ["npm", "install", "localtunnel", "--silent"],
             cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -197,41 +197,45 @@ def install_nodejs():
     if result and result.returncode == 0:
         print("✅ Node.js already installed")
         return True
-    
-    # Try different methods to install Node.js
-    methods = [
-        # Method 1: Use NodeSource repository (most reliable)
-        [
-            "curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -",
-            "sudo apt-get install -y nodejs"
-        ],
-        # Method 2: Use snap (fallback)
-        [
-            "sudo snap install node --classic"
-        ],
-        # Method 3: Direct download (last resort)
-            "wget https://nodejs.org/dist/v18.17.0/node-v18.17.0-linux-x64.tar.xz",
-            "tar -xf node-v18.17.0-linux-x64.tar.xz",
-            "export PATH=$PATH:$(pwd)/node-v18.17.0-linux-x64/bin"
-    ]
-    
-    for i, method in enumerate(methods, 1):
-        print(f"Trying Node.js installation method {i}...")
-        success = True
-        for cmd in method:
-            result = run_command(cmd)
-            if result is None or result.returncode != 0:
-                success = False
-                break
-        
-        if success:
-            # Verify installation
-            result = run_command("node --version")
+
+    print("🤔 Node.js not found. Attempting to install...")
+
+    # Platform-specific installation
+    if os.name == 'nt':  # Windows
+        print("💻 Running on Windows. Trying to install with winget...")
+        try:
+            # Using winget to install Node.js LTS
+            result = run_command("winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent")
             if result and result.returncode == 0:
+                print("✅ Node.js installed successfully via winget.")
+                # NOTE: A restart of the script/shell might be needed for the PATH to update.
+                return True
+            else:
+                print("❌ Winget installation failed or was cancelled.")
+        except FileNotFoundError:
+            print("❌ winget command not found. Please install Node.js manually from https://nodejs.org/")
+            return False
+
+    elif sys.platform.startswith('linux') or sys.platform == 'darwin': # Linux or macOS
+        # The original script's Linux installation methods
+        methods = [
+            ["curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -", "sudo apt-get install -y nodejs"],
+            ["sudo snap install node --classic"],
+        ]
+        for i, method in enumerate(methods, 1):
+            print(f"🐧 Trying Node.js installation method {i}...")
+            success = True
+            for cmd in method:
+                result = run_command(cmd)
+                if result is None or result.returncode != 0:
+                    success = False
+                    break
+            if success and shutil.which("node"):
                 print(f"✅ Node.js installed successfully with method {i}")
                 return True
     
-    print("❌ Failed to install Node.js. Please install manually from https://nodejs.org/")
+    print("❌ Failed to automatically install Node.js.")
+    print("   Please install it manually from https://nodejs.org/ and try again.")
     return False
 
 # ============================================================================
@@ -291,6 +295,10 @@ def start_server_and_tunnel():
     # Setup Node.js for LocalTunnel
     nodejs_available = install_nodejs()
     
+    if not nodejs_available:
+        print("❌ Cannot start server because Node.js is not available. Please install it and try again.")
+        return
+
     if not BACKEND_DIR.exists():
         print("❌ Backend directory not found")
         return
