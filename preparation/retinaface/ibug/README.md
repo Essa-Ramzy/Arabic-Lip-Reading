@@ -1,9 +1,11 @@
 # iBUG Face Processing Module
 
 ## Purpose
+
 The iBUG module provides comprehensive face detection and alignment capabilities for the Arabic Lip Reading API. This module integrates third-party face processing libraries from the iBUG research group, offering robust face detection and precise facial landmark extraction.
 
 ## Folder Structure
+
 ```
 ibug/
 ├── face_alignment/                   # Facial landmark detection
@@ -42,10 +44,12 @@ ibug/
 ## File Descriptions
 
 ### Face Alignment Module
+
 - **`face_alignment/fan/`**: Face Alignment Network implementation for precise facial landmark detection
 - **`face_alignment/utils.py`**: Utilities for landmark visualization and connectivity mapping
 
 ### Face Detection Module
+
 - **`face_detection/retina_face/`**: RetinaFace implementation for robust face detection
 - **`face_detection/s3fd/`**: S3FD (S3 Face Detector) alternative implementation
 - **`face_detection/utils/`**: Additional utilities for face tracking and pose estimation
@@ -54,6 +58,7 @@ ibug/
 ## Internal Usage
 
 ### Face Detection with RetinaFace
+
 ```python
 from preparation.retinaface.ibug.face_detection import RetinaFacePredictor
 
@@ -69,6 +74,7 @@ faces = predictor(image, rgb=False)
 ```
 
 ### Facial Landmark Detection
+
 ```python
 from preparation.retinaface.ibug.face_alignment import FANPredictor
 
@@ -82,16 +88,19 @@ landmarks, scores = predictor(image, face_boxes, rgb=True)
 ## Key Components
 
 ### RetinaFace Detection
+
 - Multiple backbone options (ResNet50, MobileNet0.25)
 - Configurable detection thresholds
 - Efficient prior box generation and NMS
 
 ### Face Alignment Network (FAN)
+
 - 68-point facial landmark detection
 - Multiple model variants (2DFAN2, 2DFAN4)
 - High-precision landmark localization
 
 ### S3FD Detection
+
 - Alternative face detection method
 - Optimized for speed-accuracy trade-offs
 - Complementary to RetinaFace detection
@@ -99,24 +108,28 @@ landmarks, scores = predictor(image, face_boxes, rgb=True)
 ## Model Configurations
 
 ### Available Models
+
 - **RetinaFace ResNet50**: High accuracy, slower inference
 - **RetinaFace MobileNet0.25**: Faster inference, lower accuracy
 - **2DFAN2**: 2-module Face Alignment Network
 - **2DFAN4**: 4-module Face Alignment Network (higher accuracy)
 
 ### Configuration Options
+
 - Detection confidence thresholds
 - NMS parameters
 - Input image sizes
 - Device selection (CPU/GPU)
 
 ## Dependencies
+
 - PyTorch
 - OpenCV
 - NumPy
 - Pre-trained model weights (downloaded automatically)
 
 ## Notes for Contributors
+
 - All models require pre-trained weights for initialization
 - GPU acceleration recommended for real-time applications
 - The module is designed to work with single or multiple face scenarios
