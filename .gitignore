@@ -5,3 +5,4 @@ uploads/
 processed/
 LRC-AR/
 .env
+node_modules/
