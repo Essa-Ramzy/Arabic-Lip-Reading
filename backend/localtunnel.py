@@ -92,17 +92,20 @@ def ensure_localtunnel_installed(project_dir):
     if not os.path.exists(node_modules_path):
         print("📦 Installing LocalTunnel locally...")
         result = subprocess.run(
-            ["npm", "install", "localtunnel", "--silent"],
+            ["npm", "install", "localtunnel", "--silent", "--no-progress", "--no-audit", "--no-fund"],
             cwd=project_dir,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=True,
             shell=os.name == "nt"  # Use shell on Windows
         )
-        print(result.stdout)
         if result.returncode != 0:
             print("❌ LocalTunnel installation failed.")
+            if result.stderr:
+                print(f"Error: {result.stderr}")
             return False
+        else:
+            print("✅ LocalTunnel installed successfully")
     else:
         print("✅ LocalTunnel already installed locally")
     
@@ -124,9 +127,6 @@ def get_lt_command(project_dir, port, subdomain):
 
 def run_localtunnel_local(project_dir, port, subdomain):
     """Run LocalTunnel using local installation (cross-platform)"""
-    if not ensure_localtunnel_installed(project_dir):
-        return None
-
     cmd = get_lt_command(project_dir, port, subdomain)
     if not cmd:
         return None
@@ -341,6 +341,14 @@ def start_server_and_tunnel():
     main_py_path = BACKEND_DIR / "main.py"
     print(f"🔍 main.py exists: {main_py_path.exists()}")
     
+    # Install LocalTunnel after Node.js is available
+    if nodejs_available:
+        print("📦 Setting up LocalTunnel...")
+        localtunnel_installed = ensure_localtunnel_installed(str(BACKEND_DIR))
+        if not localtunnel_installed:
+            print("⚠️  LocalTunnel installation failed, tunnel will not be available")
+            nodejs_available = False
+    
     print(f"\n✅ Setup complete!")
     print(f"📁 Backend directory: {BACKEND_DIR}")
     print(f"🌐 Local URL: http://{API_HOST}:{API_PORT}")
@@ -350,12 +358,12 @@ def start_server_and_tunnel():
     threading.Thread(target=start_server, daemon=True).start()
     time.sleep(2)  # Give server time to start
 
-    # Start LocalTunnel if Node.js is available
+    # Start LocalTunnel if Node.js is available and LocalTunnel is installed
     if nodejs_available:
         print("🔄 Starting LocalTunnel...")
         start_localtunnel_thread(API_PORT)
     else:
-        print("⚠️  LocalTunnel not available (Node.js required)")
+        print("⚠️  LocalTunnel not available (Node.js or LocalTunnel installation required)")
 
     # Keep main thread alive
     try:
