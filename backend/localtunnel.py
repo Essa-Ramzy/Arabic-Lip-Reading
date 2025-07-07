@@ -268,21 +268,51 @@ def start_localtunnel_thread(port):
 def start_server():
     """Start the FastAPI server"""
     try:
+        # Ensure we're in the correct directory
+        original_cwd = os.getcwd()
+        backend_dir_str = str(BACKEND_DIR)
+        
+        print(f"🔍 Server starting in directory: {backend_dir_str}")
+        os.chdir(backend_dir_str)
+        
+        # Check if main.py exists
+        if not os.path.exists("main.py"):
+            print("❌ main.py not found in backend directory")
+            return
+            
+        # Import and run uvicorn
         import uvicorn
+        print(f"🚀 Running uvicorn with: main:app on {API_HOST}:{API_PORT}")
         uvicorn.run("main:app", host=API_HOST, port=API_PORT, log_level=LOG_LEVEL)
-    except ImportError:
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
         print("❌ uvicorn not found. Please install it with: pip install uvicorn[standard]")
     except KeyboardInterrupt:
         print("\n👋 Server stopped")
     except Exception as e:
         print(f"❌ Failed to start server: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
+        print(f"❌ Current directory: {os.getcwd()}")
+        print(f"❌ Backend directory: {BACKEND_DIR}")
         print("\n💡 Try running manually:")
         print(f"   cd {BACKEND_DIR}")
         print(f"   python -m uvicorn main:app --host {API_HOST} --port {API_PORT}")
+    finally:
+        # Restore original directory if needed
+        try:
+            os.chdir(original_cwd)
+        except:
+            pass
 
 def start_server_and_tunnel():
     """Start both the FastAPI server and LocalTunnel"""
     print("🚀 Starting Arabic Lip Reading Server...")
+    
+    # Debug: Print current directory and backend directory
+    print(f"🔍 Current working directory: {os.getcwd()}")
+    print(f"🔍 Backend directory: {BACKEND_DIR}")
+    print(f"🔍 Backend directory exists: {BACKEND_DIR.exists()}")
     
     # Install dependencies and setup environment
     install_dependencies()
@@ -305,6 +335,11 @@ def start_server_and_tunnel():
 
     # Change to backend directory
     os.chdir(str(BACKEND_DIR))
+    print(f"🔍 Changed to directory: {os.getcwd()}")
+    
+    # Check if main.py exists
+    main_py_path = BACKEND_DIR / "main.py"
+    print(f"🔍 main.py exists: {main_py_path.exists()}")
     
     print(f"\n✅ Setup complete!")
     print(f"📁 Backend directory: {BACKEND_DIR}")
