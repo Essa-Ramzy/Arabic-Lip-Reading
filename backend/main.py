@@ -12,6 +12,8 @@ import asyncio
 import json
 import time
 import threading
+import traceback
+import concurrent.futures
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -146,7 +148,9 @@ logger.info(f"Log level: {LOG_LEVEL}")
 logger.info(f"Log file: {LOG_FILE}")
 
 # Force a flush to ensure the log messages are written
-logging.getLogger().handlers[0].flush() if logging.getLogger().handlers else None
+for handler in logging.getLogger().handlers:
+    if hasattr(handler, 'flush'):
+        handler.flush()
 
 def flush_logs():
     """Force flush all log handlers to ensure messages are written to file."""
@@ -184,7 +188,7 @@ app = FastAPI(
     - **POST /transcribe/**: Upload video or use hash for lip reading transcription
     - **GET /progress/{task_id}**: Stream real-time progress updates via Server-Sent Events
     - **GET /progress/{task_id}/status**: Get current progress status (one-time request)
-    - **DELETE|POST /progress/{task_id}/cancel**: Cancel a running transcription task
+    - **DELETE /progress/{task_id}/cancel**: Cancel a running transcription task
     - **POST /enhance-text/**: Enhance Arabic text with AI (no video required)
     - **GET /config**: Get API configuration and available models
     - **GET /docs**: Interactive API documentation (Swagger UI)
@@ -198,7 +202,7 @@ app = FastAPI(
     version="1.0.0",
     contact={
         "name": "Arabic Lip Reading API",
-        "url": "https://github.com/HazemAI/arabic-lip-reading",
+        "url": "https://github.com/Essa-Ramzy/arabic-lip-reading",
     },
     license_info={
         "name": "MIT",
@@ -260,7 +264,7 @@ def parse_file_size(size_str: str) -> int:
                 size_value = float(size_str[:-len(unit)])
                 return int(size_value * multiplier)
             except ValueError:
-                break
+                continue
     
     # Default fallback
     return 10 * 1024 * 1024  # Default 10MB
@@ -703,7 +707,6 @@ async def process_video_background(
         ]
         
         # Start video processing in executor to avoid blocking
-        import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_video_processing)
             progress_tracker.register_future(task_id, future)
@@ -833,7 +836,6 @@ async def process_video_background(
     except Exception as e:
         logger.error(f"Unexpected error in background processing for task {task_id}: {str(e)}")
         logger.error(f"Exception type: {type(e).__name__}")
-        import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         progress_tracker.fail_task(task_id, f"Unexpected error: {str(e)}")
     finally:
@@ -899,12 +901,9 @@ async def get_progress_status(task_id: str):
     "/progress/{task_id}/cancel",
     response_model=CancelTaskResponse,
     tags=["transcription"],
-    summary="Cancel a running transcription task (DELETE method)",
+    summary="Cancel a running transcription task",
     description="""
-    Cancel a currently running or pending transcription task using DELETE method.
-    
-    **Note:** This endpoint is also available as POST /progress/{task_id}/cancel
-    for better client compatibility.
+    Cancel a currently running or pending transcription task.
     
     **Features:**
     - Immediate cancellation of pending tasks
@@ -923,43 +922,6 @@ async def get_progress_status(task_id: str):
     - **Running tasks**: Cancelled at the next safety checkpoint during processing
     - **AI enhancement**: Can be cancelled before or during AI processing
     - **Completed/Failed tasks**: Cannot be cancelled (returns appropriate message)
-    
-    **Flutter Example:**
-    ```dart
-    // Cancel a task using DELETE (preferred)
-    final response = await http.delete(
-      Uri.parse('$baseUrl/progress/$taskId/cancel'),
-    );
-    
-    // Alternative: Cancel using POST (for compatibility)
-    final response = await http.post(
-      Uri.parse('$baseUrl/progress/$taskId/cancel'),
-    );
-    
-    if (response.statusCode == 200) {
-      final result = json.decode(response.body);
-      if (result['success']) {
-        print('Task cancelled: ${result['message']}');
-      } else {
-        print('Cannot cancel: ${result['message']}');
-      }
-    }
-    ```
-    
-    **Python Example:**
-    ```python
-    # Using DELETE (preferred)
-    response = requests.delete(f'/progress/{task_id}/cancel')
-    
-    # Alternative: Using POST (for compatibility)
-    response = requests.post(f'/progress/{task_id}/cancel')
-    
-    result = response.json()
-    if result['success']:
-        print(f"Task {task_id} cancelled successfully")
-    else:
-        print(f"Cannot cancel task {task_id}: {result['message']}")
-    ```
     """,
     responses={
         200: {"description": "Cancellation request processed (check success field for actual result)"},
@@ -988,92 +950,6 @@ async def cancel_task(task_id: str):
     )
 
 @app.post(
-    "/progress/{task_id}/cancel",
-    response_model=CancelTaskResponse,
-    tags=["transcription"],
-    summary="Cancel a running transcription task (POST method)",
-    description="""
-    Cancel a currently running or pending transcription task using POST method.
-    
-    This is an alternative to the DELETE method for better client compatibility,
-    especially with frameworks that have limited HTTP method support.
-    
-    **Features:**
-    - Immediate cancellation of pending tasks
-    - Graceful cancellation of running tasks at next checkpoint
-    - Safe cleanup of resources and temporary files
-    - Clear status reporting
-    
-    **Use Cases:**
-    - User wants to stop a long-running transcription
-    - Error recovery when a task gets stuck
-    - Resource management when starting new tasks
-    - UI responsiveness for cancel operations
-    
-    **Cancellation Behavior:**
-    - **Pending tasks**: Cancelled immediately before processing starts
-    - **Running tasks**: Cancelled at the next safety checkpoint during processing
-    - **AI enhancement**: Can be cancelled before or during AI processing
-    - **Completed/Failed tasks**: Cannot be cancelled (returns appropriate message)
-    
-    **Flutter Example:**
-    ```dart
-    // Cancel a task using POST
-    final response = await http.post(
-      Uri.parse('$baseUrl/progress/$taskId/cancel'),
-    );
-    
-    if (response.statusCode == 200) {
-      final result = json.decode(response.body);
-      if (result['success']) {
-        print('Task cancelled: ${result['message']}');
-      } else {
-        print('Cannot cancel: ${result['message']}');
-      }
-    }
-    ```
-    
-    **Python Example:**
-    ```python
-    response = requests.post(f'/progress/{task_id}/cancel')
-    result = response.json()
-    
-    if result['success']:
-        print(f"Task {task_id} cancelled successfully")
-    else:
-        print(f"Cannot cancel task {task_id}: {result['message']}")
-    ```
-    """,
-    responses={
-        200: {"description": "Cancellation request processed (check success field for actual result)"},
-        404: {"description": "Task not found"}
-    }
-)
-async def cancel_task_post(task_id: str):
-    """
-    Cancel a running transcription task (POST method version).
-    
-    This endpoint provides the same functionality as DELETE /progress/{task_id}/cancel
-    but uses POST method for better client compatibility.
-    """
-    # Check if task exists
-    progress_data = progress_tracker.get_progress(task_id)
-    if progress_data is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    # Attempt to cancel the task
-    cancel_result = progress_tracker.cancel_task(task_id)
-    
-    logger.info(f"Cancellation request (POST) for task {task_id}: {cancel_result}")
-    
-    return CancelTaskResponse(
-        task_id=task_id,
-        message=cancel_result["message"],
-        was_running=cancel_result["was_running"],
-        success=cancel_result["success"]
-    )
-
-@app.post(
     "/transcribe/", 
     tags=["transcription"],
     summary="Start video transcription with progress tracking",
@@ -1081,70 +957,12 @@ async def cancel_task_post(task_id: str):
     Start Arabic lip reading transcription process and return a task ID for progress tracking.
     
     This endpoint immediately returns a task ID that can be used to track progress via:
-    - GET /progress/{task_id} - Server-Sent Events stream (recommended for Flutter)
+    - GET /progress/{task_id} - Server-Sent Events stream
     - GET /progress/{task_id}/status - Single status check
-    
-    **Process:**
-    1. Submit transcription request (file or hash)
-    2. Receive task_id in response immediately
-    3. Connect to /progress/{task_id} for real-time updates
-    4. Process completes with final result available via progress endpoints
     
     **Input Options:**
     - **New Video File**: Upload video for complete processing pipeline
     - **Processed Video Hash**: Use hash from previous processing to skip preprocessing
-    
-    **Flutter EventSource Example:**
-    ```dart
-    // Start transcription
-    final response = await http.post(
-      Uri.parse('$baseUrl/transcribe/'),
-      body: formData,
-    );
-    final taskId = json.decode(response.body)['task_id'];
-    
-    // Track progress with EventSource
-    final eventSource = EventSource(Uri.parse('$baseUrl/progress/$taskId'));
-    eventSource.listen((event) {
-      final progress = json.decode(event.data);
-      print('Progress: ${progress['percentage'].toStringAsFixed(1)}%');
-      if (progress['status'] == 'completed') {
-        final result = progress['result'];
-        // Use the final transcription result
-      }
-    });
-    ```
-    
-    **Python Example with New File:**
-    ```python
-    # Start transcription
-    files = {'file': open('video.mp4', 'rb')}
-    data = {'model_name': 'conformer', 'diacritized': True}
-    response = requests.post('/transcribe/', files=files, data=data)
-    task_id = response.json()['task_id']
-    
-    # Track progress
-    import requests
-    response = requests.get(f'/progress/{task_id}', stream=True)
-    for line in response.iter_lines():
-        if line.startswith(b'data: '):
-            progress_data = json.loads(line[6:])
-            print(f"Progress: {progress_data['percentage']:.1f}%")
-            if progress_data['status'] == 'completed':
-                result = progress_data['result']
-                break
-    ```
-    
-    **Example Usage with Hash:**
-    ```python
-    data = {
-        'file_hash': 'abc123def456789',
-        'model_name': 'mstcn',
-        'beam_size': 20
-    }
-    response = requests.post('/transcribe/', data=data)
-    task_id = response.json()['task_id']
-    ```
     """,
     responses={
         200: {"description": "Task started successfully, returns task_id for progress tracking"},
@@ -1200,104 +1018,11 @@ async def transcribe_video(
     
     This endpoint performs asynchronous end-to-end Arabic lip reading with the following pipeline:
     
-    **Immediate Response:**
-    - Returns a unique task_id for progress tracking
-    - Processing starts immediately in the background
-    - Client can track progress via Server-Sent Events (SSE)
-    
     **Processing Pipeline:**
     1. **Input Validation**: Accept either a new video file or a hash of previously processed video
     2. **Video Processing** (if new file): Orientation detection, face detection, mouth extraction
     3. **Lip Reading Inference**: Apply deep learning model to predict Arabic text
     4. **AI Enhancement** (optional): Use Google Gemini for text improvement and additional features
-    
-    **Progress Tracking:**
-    - Compatible with Flutter EventSource for real-time updates
-    - Updates sent every second during processing
-    - Final result available when status becomes 'completed'
-    
-    **Input Options:**
-    - **New Video File**: Upload video for complete processing pipeline
-    - **Processed Video Hash**: Use hash from previous processing to skip preprocessing
-    
-    **Model Performance:**
-    - **MSTCN**: Fastest processing, good for real-time applications
-    - **DenseTCN**: Balanced speed and accuracy
-    - **Conformer**: Highest accuracy, recommended for best results
-    
-    **AI Enhancement Features:**
-    - Text improvement and error correction
-    - Content summarization
-    - Translation to multiple languages
-    - Contextual understanding
-    
-    **Flutter Integration Example:**
-    ```dart
-    // 1. Start transcription
-    final response = await http.post(
-      Uri.parse('$baseUrl/transcribe/'),
-      body: formData,
-    );
-    final taskId = json.decode(response.body)['task_id'];
-    
-    // 2. Track progress with EventSource
-    final eventSource = EventSource(Uri.parse('$baseUrl/progress/$taskId'));
-    eventSource.listen((event) {
-      final progress = json.decode(event.data);
-      setState(() {
-        progressPercentage = progress['percentage'];
-        currentStep = progress['current_step'];
-      });
-      
-      if (progress['status'] == 'completed') {
-        final result = progress['result'];
-        // Process final transcription result
-        eventSource.close();
-      } else if (progress['status'] == 'failed') {
-        // Handle error
-        eventSource.close();
-      }
-    });
-    ```
-    
-    **Python Example with New File:**
-    ```python
-    import requests
-    import json
-    
-    # Start transcription
-    files = {'file': open('video.mp4', 'rb')}
-    data = {
-        'model_name': 'conformer',
-        'diacritized': True,
-        'enhance': True
-    }
-    response = requests.post('/transcribe/', files=files, data=data)
-    task_id = response.json()['task_id']
-    
-    # Track progress
-    response = requests.get(f'/progress/{task_id}', stream=True)
-    for line in response.iter_lines():
-        if line.startswith(b'data: '):
-            progress_data = json.loads(line[6:])
-            print(f"Progress: {progress_data['percentage']:.1f}%")
-            if progress_data['status'] == 'completed':
-                result = progress_data['result']
-                # Response includes processed_video_hash for future use
-                print(f"Hash for reuse: {final_result['video_hash']}")
-                break
-    ```
-    
-    **Example Usage with Hash:**
-    ```python
-    data = {
-        'file_hash': 'abc123def456789',
-        'model_name': 'mstcn',
-        'beam_size': 20
-    }
-    response = requests.post('/transcribe/', data=data)
-    task_id = response.json()['task_id']
-    ```
     """
     # Validate input: either file or file_hash must be provided, but not both
     if file is None and file_hash is None:
@@ -1389,7 +1114,6 @@ async def transcribe_video(
     except Exception as e:
         logger.error(f"Unexpected error during transcription: {str(e)}")
         logger.error(f"Exception type: {type(e).__name__}")
-        import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -1442,31 +1166,7 @@ async def enhance_text(
     Enhance Arabic text using Google Gemini AI.
     
     This endpoint provides AI-powered text enhancement capabilities without requiring
-    video processing. It's useful for:
-    
-    - **Improving transcription quality** from other sources
-    - **Translating Arabic text** to multiple languages
-    - **Generating summaries** of Arabic content
-    - **Grammar and style correction** for Arabic text
-    
-    **AI Capabilities:**
-    - Advanced language understanding
-    - Context-aware corrections
-    - Natural translation preserving meaning
-    - Intelligent summarization
-    
-    **Example Usage:**
-    ```python
-    data = {
-        'text': 'مرحبا بكم في واجهة برمجة التطبيقات',
-        'include_summary': True,
-        'include_translation': True,
-        'target_language': 'English'
-    }
-    response = requests.post('/enhance-text/', data=data)
-    ```
-    
-    **Note:** Requires Google AI API key to be configured.
+    video processing.
     """
     if not gemini_service:
         raise HTTPException(status_code=503, detail="Gemini service not available")
@@ -1516,18 +1216,6 @@ async def enhance_text(
 async def get_config():
     """
     Get current API configuration and capabilities.
-    
-    Returns comprehensive information about:
-    - Upload limitations and supported formats
-    - Available models and their characteristics
-    - Processing parameters and defaults
-    - AI service availability
-    
-    **Use this endpoint to:**
-    - Configure frontend UI elements
-    - Validate user inputs before submission
-    - Display available options to users
-    - Check AI service availability
     """
     max_size_mb = MAX_UPLOAD_SIZE / (1024 * 1024)
     
@@ -1564,16 +1252,6 @@ async def get_config():
     summary="API Information",
     description="""
     Get basic information about the Arabic Lip Reading API.
-    
-    **Provides:**
-    - API version and features
-    - Available endpoints overview
-    - Quick start information
-    
-    **For detailed documentation:**
-    - Visit `/docs` for interactive Swagger UI
-    - Visit `/redoc` for ReDoc documentation
-    - Use `/config` for current configuration
     """,
     responses={
         200: {"description": "API information and feature list"}
@@ -1582,23 +1260,6 @@ async def get_config():
 async def root():
     """
     Get API information and overview.
-    
-    This endpoint provides a quick overview of the Arabic Lip Reading API,
-    including its main features and available endpoints.
-    
-    **Main Features:**
-    - Advanced Arabic lip reading with multiple model options
-    - AI-powered text enhancement and translation
-    - Automatic video processing and orientation correction
-    - File hash caching for efficient re-processing
-    - RESTful API with comprehensive documentation
-    
-    **Getting Started:**
-    1. Check `/config` for current settings and available models
-    2. Use `/transcribe/` to upload videos for lip reading (save the hash!)
-    3. Use `/transcribe/` with hash for different models or parameters
-    4. Use `/enhance-text/` for AI text enhancement
-    5. Explore `/docs` for interactive API testing
     """
     return {
         "message": "Arabic Lip Reading API",
@@ -1618,227 +1279,15 @@ async def root():
             "transcribe": "/transcribe/ - Upload video or use hash for lip reading with model selection",
             "progress_stream": "/progress/{task_id} - Stream real-time progress updates via Server-Sent Events",
             "progress_status": "/progress/{task_id}/status - Get current progress status (one-time request)",
-            "cancel_task": "/progress/{task_id}/cancel - Cancel a running transcription task (DELETE or POST)",
+            "cancel_task": "/progress/{task_id}/cancel - Cancel a running transcription task",
             "enhance": "/enhance-text/ - Enhance Arabic text with AI",
             "config": "/config - Get API configuration and available models",
-            "api-docs": "/api-docs - Comprehensive API documentation with examples",
             "health": "/health - API health check and service status",
             "docs": "/docs - Interactive API documentation (Swagger UI)",
             "redoc": "/redoc - Alternative API documentation (ReDoc)"
         }
     }
 
-@app.get(
-    "/api-docs",
-    tags=["configuration"],
-    summary="Comprehensive API Documentation",
-    description="Get detailed API documentation with examples and best practices",
-    responses={
-        200: {"description": "Detailed API documentation"}
-    }
-)
-async def api_documentation():
-    """
-    Comprehensive API documentation with examples and best practices.
-    """
-    return {
-        "title": "Arabic Lip Reading API - Complete Documentation",
-        "version": "1.0.0",
-        "description": "Advanced Arabic lip reading system with AI enhancement",
-        
-        "quick_start": {
-            "description": "Get started with the API in 3 simple steps",
-            "steps": [
-                {
-                    "step": 1,
-                    "title": "Check Configuration",
-                    "endpoint": "GET /config",
-                    "description": "Get current API settings and available models"
-                },
-                {
-                    "step": 2,
-                    "title": "Upload Video",
-                    "endpoint": "POST /transcribe/",
-                    "description": """
-                    Upload a video file for Arabic lip reading transcription.
-                    
-                    **Processing Pipeline:**
-                    1. Video upload and validation
-                    2. Face detection and landmark extraction  
-                    3. Mouth region extraction and preprocessing
-                    4. Lip reading model inference
-                    5. Optional AI enhancement with Gemini
-                    
-                    **Returns a hash** for the processed video that can be used for future
-                    transcriptions with different models or parameters without reprocessing.
-                    """,
-                    "parameters": {
-                        "file": "Video file to process",
-                        "model_name": "Encoder model (mstcn/dctcn/conformer)",
-                        "landmark_model_name": "Landmark model (resnet50/mobilenet0.25)",
-                        "enhance": "Apply AI enhancement (requires API key)"
-                    },
-                    "returns": {
-                        "transcript": "Predicted Arabic text",
-                        "hash": "Hash for processed video (for future use)",
-                        "metadata": "Processing information and statistics"
-                    }
-                },
-                {
-                    "step": 2.5,
-                    "title": "Reuse Processed Video (Optional)",
-                    "endpoint": "POST /transcribe/",
-                    "description": """
-                    Reuse a previously processed video using its hash.
-                    
-                    **Benefits:**
-                    - Skip video preprocessing (faster processing)
-                    - Try different models or beam sizes
-                    - Reduce computational overhead
-                    - Consistent results across runs
-                    """,
-                    "parameters": {
-                        "file_hash": "Hash from previous processing",
-                        "model_name": "Different encoder model to try",
-                        "beam_size": "Different beam search parameters"
-                    }
-                },
-                {
-                    "step": 3,
-                    "title": "Enhance Results (Optional)",
-                    "endpoint": "POST /enhance-text/",
-                    "description": "Use AI to improve, summarize, or translate the results"
-                }
-            ]
-        },
-        
-        "models": {
-            "encoder_models": {
-                "mstcn": {
-                    "name": "Multi-Scale Temporal Convolutional Network",
-                    "speed": "Fast",
-                    "accuracy": "Good",
-                    "best_for": "Real-time applications, quick processing",
-                    "memory_usage": "Low"
-                },
-                "dctcn": {
-                    "name": "Dense Temporal Convolutional Network",
-                    "speed": "Medium",
-                    "accuracy": "Better",
-                    "best_for": "Balanced performance and accuracy",
-                    "memory_usage": "Medium"
-                },
-                "conformer": {
-                    "name": "Conformer (Transformer + Convolution)",
-                    "speed": "Slower",
-                    "accuracy": "Best",
-                    "best_for": "Highest quality results, research applications",
-                    "memory_usage": "High"
-                }
-            },
-            "landmark_models": {
-                "resnet50": {
-                    "name": "ResNet-50",
-                    "accuracy": "High",
-                    "speed": "Medium",
-                    "best_for": "Production use, high accuracy requirements"
-                },
-                "mobilenet0.25": {
-                    "name": "MobileNet v1 0.25x",
-                    "accuracy": "Good",
-                    "speed": "Fast",
-                    "best_for": "Mobile devices, edge computing"
-                }
-            }
-        },
-        
-        "examples": {
-            "basic_transcription": {
-                "description": "Basic video transcription with default settings",
-                "method": "POST",
-                "endpoint": "/transcribe/",
-                "curl_example": "curl -X POST 'http://localhost:8000/transcribe/' -H 'accept: application/json' -H 'Content-Type: multipart/form-data' -F 'file=@video.mp4' -F 'model_name=conformer' -F 'diacritized=true'"
-            },
-            
-            "enhanced_transcription": {
-                "description": "Video transcription with AI enhancement and translation",
-                "method": "POST",
-                "endpoint": "/transcribe/",
-                "curl_example": "curl -X POST 'http://localhost:8000/transcribe/' -H 'accept: application/json' -H 'Content-Type: multipart/form-data' -F 'file=@video.mp4' -F 'model_name=conformer -F 'enhance=true' -F 'include_summary=true' -F 'include_translation=true' -F 'target_language=English'"
-            },
-            
-            "hash_transcription": {
-                "description": "Reuse processed video with hash for different model or parameters",
-                "method": "POST",
-                "endpoint": "/transcribe/",
-                "curl_example": "curl -X POST 'http://localhost:8000/transcribe/' -H 'accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' -d 'file_hash=abc123def456789&model_name=mstcn&beam_size=20'"
-            },
-            
-            "text_enhancement": {
-                "description": "Enhance existing Arabic text with AI",
-                "method": "POST",
-                "endpoint": "/enhance-text/",
-                "curl_example": "curl -X POST 'http://localhost:8000/enhance-text/' -H 'accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' -d 'text=مرحبا بكم في واجهة برمجة التطبيقات&include_translation=true&target_language=English'"
-            }
-        },
-        
-        "best_practices": {
-            "video_quality": [
-                "Use clear, well-lit videos for best results",
-                "Ensure the speaker's face is clearly visible",
-                "Avoid extreme angles or rotations",
-                "Prefer videos with stable framing"
-            ],
-            "model_selection": [
-                "Use 'conformer' for highest accuracy",
-                "Use 'mstcn' for fastest processing",
-                "Use 'dctcn' for balanced performance",
-                "Consider memory constraints when choosing models"
-            ],
-            "ai_enhancement": [
-                "Enable AI enhancement for production use",
-                "Use summarization for long content",
-                "Specify target language clearly for translation",
-                "Ensure Google AI API key is configured"
-            ],
-            "performance": [
-                "Process videos in batches for better throughput",
-                "Use appropriate beam_size (10-20 for most cases)",
-                "Monitor memory usage with larger models",
-                "Cache results when possible",
-                "Use file hashes to reuse processed videos",
-                "Save hashes from initial processing for future use",
-                "Skip preprocessing when using hash for faster inference"
-            ]
-        },
-        
-        "error_handling": {
-            "common_errors": {
-                "413": {
-                    "description": "File too large",
-                    "solution": "Reduce file size or check /config for limits"
-                },
-                "422": {
-                    "description": "Video processing failed",
-                    "solution": "Check video format and quality"
-                },
-                "503": {
-                    "description": "Service unavailable",
-                    "solution": "Check model availability or AI service configuration"
-                }
-            }
-        },
-        
-        "rate_limits": {
-            "description": "Currently no rate limits enforced",
-            "recommendation": "Implement rate limiting in production environments"
-        },
-        
-        "authentication": {
-            "description": "Currently no authentication required",
-            "recommendation": "Implement API key authentication for production use"
-        }
-    }
 
 @app.get(
     "/health",

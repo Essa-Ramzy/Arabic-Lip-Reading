@@ -1,0 +1,27 @@
+# Arabic Lip Reading API Dependencies
+
+# Core FastAPI and server dependencies
+fastapi>=0.68.0
+uvicorn[standard]>=0.15.0
+python-multipart
+python-dotenv
+
+# Deep learning and computer vision
+torch>=1.9.0
+torchvision>=0.10.0
+torchaudio>=0.9.0
+opencv-python>=4.5.0
+numpy>=1.20.0
+scipy>=1.7.0
+scikit-image>=0.18.0
+
+# AI enhancement services
+google-generativeai
+
+# Data processing and utilities
+pydantic>=1.8.0
+Pillow>=8.0.0
+kornia>=0.6.0  # For video augmentation
+
+# Optional dependencies for advanced features
+# transformers  # For additional NLP features (if needed)

@@ -31,7 +31,7 @@ This Arabic lip reading system leverages state-of-the-art deep learning models t
 - **Processes video uploads** with automatic face detection and lip region extraction
 - **Performs lip reading inference** using advanced neural network models
 - **Provides AI-powered enhancements** including text improvement, summarization, and translation
-- **Handles real-time processing** with progress tracking and WebSocket support
+- **Handles real-time processing** with progress tracking via Server-Sent Events
 - **Supports multiple Arabic dialects** and diacritization options
 
 ## 🛠️ Technologies Used
@@ -46,61 +46,100 @@ This Arabic lip reading system leverages state-of-the-art deep learning models t
 ### AI & Machine Learning
 
 - **RetinaFace** - Face detection and landmark extraction
-- **Custom E2E VSR Model** - End-to-end video speech recognition
+- **Custom E2E VSR Models** - End-to-end video speech recognition with multiple encoders:
+  - **MSTCN** - Multiscale Temporal Convolutional Network
+  - **DCTCN** - Dense Temporal Convolutional Network
+  - **Conformer** - Conformer-based encoder architecture
 - **Gemini Pro** - AI-powered text enhancement and translation
-- **ESPnet** - Speech processing toolkit
+- **ESPnet** - Speech processing toolkit for transformer decoder
 
 ### Additional Tools
 
+- **LocalTunnel** - Public tunnel for external access (using Node.js package)
 - **uvicorn** - ASGI server for running the API
 - **Pydantic** - Data validation and serialization
 - **python-multipart** - File upload handling
 - **python-dotenv** - Environment variable management
+- **Google Generative AI** - AI enhancement and translation services
 
 ## 📁 Project Structure
 
 ```
 Arabic-Lib-Reading/
-├── backend/                    # FastAPI backend application
-│   ├── main.py                # Main application entry point
-│   ├── video_processor.py     # Video processing and inference service
-│   ├── gemini_service.py      # AI enhancement service
-│   ├── localtunnel.py         # Local tunneling for external access
-│   ├── uploads/               # Temporary video uploads
-│   ├── processed/             # Processed video cache
-│   ├── logs/                  # Application logs
-│   └── .env                   # Environment configuration
-├── model/                     # Deep learning models and utilities
-│   ├── e2e_vsr.py            # End-to-end video speech recognition
-│   ├── utils.py              # Utility functions and data processing
-│   ├── encoders/             # Neural network encoders
-│   └── espnet/               # ESPnet integration
-├── preparation/              # Video preprocessing pipeline
-│   └── retinaface/          # Face detection and cropping
-└── README.md                # Project documentation
+├── backend/                                # FastAPI backend application
+│   ├── main.py                             # Main application entry point
+│   ├── video_processor.py                  # Video processing and inference service
+│   ├── gemini_service.py                   # Google Gemini Pro AI enhancement service
+│   ├── localtunnel.py                      # Local tunneling for external access
+│   ├── kaggle_api_start.ipynb              # Kaggle environment startup notebook
+│   ├── .env.example                        # Environment variables template
+│   ├── package.json                        # Node.js dependencies for LocalTunnel
+│   ├── uploads/                            # Temporary video uploads
+│   ├── processed/                          # Processed video cache
+│   └── logs/                               # Application logs
+├── model/                                  # Deep learning models and utilities
+│   ├── e2e_vsr.py                          # End-to-end video speech recognition
+│   ├── utils.py                            # Utility functions and data processing
+│   ├── master.ipynb                        # Main training and evaluation notebook
+│   ├── kaggle_master.ipynb                 # Kaggle environment training notebook
+│   ├── encoders/                           # Neural network encoders
+│   │   ├── encoder_models.py               # High-level encoder architectures
+│   │   ├── pretrained_visual_frontend.pth  # Pretrained weights
+│   │   └── modules/                        # Core neural network building blocks
+│   └── espnet/                             # ESPNet toolkit integration
+│       ├── encoder/                        # Conformer encoder implementations
+│       ├── decoder/                        # Transformer decoder components
+│       ├── transformer/                    # Core transformer building blocks
+│       ├── scorers/                        # Beam search scoring mechanisms
+│       └── *.py                            # Various ESPNet utilities and modules
+├── preparation/                            # Video preprocessing pipeline
+│   └── retinaface/                         # Face detection and mouth region cropping
+│       ├── detector.py                     # Main landmarks detector class
+│       ├── mouth_cropping.py               # AVSR data loader and mouth cropping
+│       ├── video_process.py                # Video preprocessing pipeline
+│       ├── 20words_mean_face.npy           # Mean face template for alignment
+│       └── ibug/                           # Face detection and alignment modules
+│           ├── face_alignment/             # Facial landmark detection
+│           └── face_detection/             # Face detection components
+├── dataset/                                # Training and validation datasets
+│   └── LRC-AR/                             # Arabic Lip Reading Corpus
+│       ├── Train/                          # Training data split
+│       │   ├── Manually_Verified/          # High-quality manual data
+│       │   └── Gemini_Transcribed/         # AI-transcribed data
+│       └── Val/                            # Validation data split
+|           └── Manually_Verified/          # High-quality manual data
+├── LICENSE                                 # MIT License
+├── requirements.txt                        # Python dependencies
+└── README.md                               # Project documentation
 ```
 
 ## 🔌 API Endpoints
 
 ### Core Endpoints
 
-- **POST** `/transcribe` - Upload video for lip reading transcription
-- **GET** `/transcribe/{task_id}` - Get transcription progress and results
-- **POST** `/transcribe/preprocessed` - Process already preprocessed video
+- **POST** `/transcribe/` - Upload video for lip reading transcription
+- **GET** `/progress/{task_id}` - Real-time progress tracking via Server-Sent Events
+- **GET** `/progress/{task_id}/status` - Single status check for transcription task
+- **DELETE** `/progress/{task_id}/cancel` - Cancel a running transcription task
+- **POST** `/enhance-text/` - Enhance transcribed text with AI
+- **GET** `/config` - Get API configuration and limits
+- **GET** `/` - API information and available endpoints
 - **GET** `/health` - Health check endpoint
 
 ### Parameters
 
-| Parameter     | Type    | Description                              |
-| ------------- | ------- | ---------------------------------------- |
-| `video`       | File    | Video file (MP4, AVI, MOV)               |
-| `device`      | String  | Processing device (`cpu` or `cuda`)      |
-| `model_name`  | String  | Encoder model (`resnet18`, `densenet3d`) |
-| `diacritized` | Boolean | Enable Arabic diacritization             |
-| `beam_size`   | Integer | Beam search size (1-10)                  |
-| `enhance`     | Boolean | Enable AI text enhancement               |
-| `summarize`   | Boolean | Generate content summary                 |
-| `translate`   | String  | Target language for translation          |
+| Parameter             | Type    | Description                                   |
+| --------------------- | ------- | --------------------------------------------- |
+| `file`                | File    | Video file (MP4, AVI, MOV, MKV, WebM)         |
+| `file_hash`           | String  | Hash of previously processed video file       |
+| `model_name`          | String  | Encoder model (`mstcn`, `dctcn`, `conformer`) |
+| `landmark_model_name` | String  | Landmark model (`resnet50`, `mobilenet0.25`)  |
+| `diacritized`         | Boolean | Enable Arabic diacritization                  |
+| `beam_size`           | Integer | Beam search size (1-50, default: 10)          |
+| `enhance`             | Boolean | Enable AI text enhancement                    |
+| `include_summary`     | Boolean | Generate content summary                      |
+| `include_translation` | Boolean | Include translation                           |
+| `target_language`     | String  | Target language for translation               |
 
 ## ⚙️ Setup & Installation
 
@@ -115,7 +154,7 @@ Arabic-Lib-Reading/
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/Essa-Ramzy/Arabic-Lip-Reading.git
+   git clone https://github.com/username/Arabic-Lib-Reading.git
    cd Arabic-Lib-Reading
    ```
 
@@ -129,7 +168,13 @@ Arabic-Lib-Reading/
 3. **Install dependencies:**
 
    ```bash
+   # Install Python dependencies
    pip install -r requirements.txt
+
+   # Install Node.js dependencies for LocalTunnel
+   cd backend
+   npm install
+   cd ..
    ```
 
 4. **Set up environment variables:**
@@ -156,11 +201,7 @@ The API will be available at `http://localhost:8000`
 
 ### Docker Setup (Optional)
 
-```bash
-# Build and run with Docker
-docker build -t arabic-lip-reading .
-docker run -p 8000:8000 arabic-lip-reading
-```
+**Note:** Currently, no Dockerfile is provided. You can create one following the manual installation steps above.
 
 ## 🎯 Usage
 
@@ -168,7 +209,7 @@ docker run -p 8000:8000 arabic-lip-reading
 
 ```bash
 curl -X POST "http://localhost:8000/transcribe/" \
-  -F "video=@your_video.mp4" \
+  -F "file=@your_video.mp4" \
   -F "model_name=conformer" \
   -F "diacritized=true"
 ```
@@ -177,6 +218,13 @@ curl -X POST "http://localhost:8000/transcribe/" \
 
 ```bash
 curl -X GET "http://localhost:8000/progress/{task_id}/status"
+```
+
+### Real-time Progress Tracking
+
+```bash
+# Server-Sent Events stream for real-time updates
+curl -X GET "http://localhost:8000/progress/{task_id}"
 ```
 
 ### API Documentation
