@@ -6,13 +6,7 @@
 
 A cutting-edge Arabic lip reading system powered by deep learning and computer vision. This repository contains the **backend API** built with FastAPI that handles video processing, lip reading inference, and AI-powered enhancements.
 
-## 🎥 Demo
-
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/b7620198-3be9-4938-86ec-2d20a9c57ddf" alt="Demo Video" style="border-radius: 15px; max-width: 80%;" controls />
-</div>
-
-## 📋 Table of Contents
+## Table of Contents
 
 - [About the Project](#about-the-project)
 - [Demo](#demo)
@@ -24,7 +18,7 @@ A cutting-edge Arabic lip reading system powered by deep learning and computer v
 - [Related Projects](#related-projects)
 - [License](#license)
 
-## 🚀 About the Project
+## About the Project
 
 This Arabic lip reading system leverages state-of-the-art deep learning models to convert lip movements in videos into Arabic text. The backend provides a robust API that:
 
@@ -34,7 +28,15 @@ This Arabic lip reading system leverages state-of-the-art deep learning models t
 - **Handles real-time processing** with progress tracking via Server-Sent Events
 - **Supports multiple Arabic dialects** and diacritization options
 
-## 🛠️ Technologies Used
+## Demo
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/b7620198-3be9-4938-86ec-2d20a9c57ddf" alt="Demo Video" style="border-radius: 15px; max-width: 80%;" controls>
+    <em>If you can't see the video, <a href="https://github.com/user-attachments/assets/b7620198-3be9-4938-86ec-2d20a9c57ddf">click here to watch it directly</a>.</em>
+  </video>
+</div>
+
+## Technologies Used
 
 ### Backend Framework
 
@@ -62,7 +64,7 @@ This Arabic lip reading system leverages state-of-the-art deep learning models t
 - **python-dotenv** - Environment variable management
 - **Google Generative AI** - AI enhancement and translation services
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Arabic-Lib-Reading/
@@ -113,7 +115,7 @@ Arabic-Lib-Reading/
 └── README.md                               # Project documentation
 ```
 
-## 🔌 API Endpoints
+## API Endpoints
 
 ### Core Endpoints
 
@@ -141,7 +143,7 @@ Arabic-Lib-Reading/
 | `include_translation` | Boolean | Include translation                           |
 | `target_language`     | String  | Target language for translation               |
 
-## ⚙️ Setup & Installation
+## Setup & Installation
 
 ### Prerequisites
 
@@ -203,7 +205,7 @@ The API will be available at `http://localhost:8000`
 
 **Note:** Currently, no Dockerfile is provided. You can create one following the manual installation steps above.
 
-## 🎯 Usage
+## Usage
 
 ### Basic Video Processing
 
@@ -231,7 +233,7 @@ curl -X GET "http://localhost:8000/progress/{task_id}"
 
 Visit `http://localhost:8000/docs` for interactive API documentation powered by Swagger UI.
 
-## 🔗 Related Projects
+## Related Projects
 
 - **Frontend Application (Flutter)**: [https://github.com/Abdelrahman-Wael-1029/lip_reading.git](https://github.com/Abdelrahman-Wael-1029/lip_reading.git)
 
@@ -245,11 +247,11 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - ESPnet team for the speech processing toolkit
 - RetinaFace developers for face detection models
